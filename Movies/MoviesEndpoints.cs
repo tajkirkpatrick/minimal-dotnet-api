@@ -1,37 +1,37 @@
-
-
+using WebApplication1.Data;
+using WebApplication1.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+
 
 namespace WebApplication1.Movies;
 public static class MoviesEndpoints
 {
-
-    private static readonly List<Movie> _movies = new();
-
     public static void MapMoviesEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/movies");
 
-        group.MapGet("/", () => GetMovies());
-        group.MapGet("/{id}", (string id) => GetMovieById(id));
-        group.MapPost("/", (MovieCreateDto movie) => AddMovie(movie));
-        group.MapPut("/{id}", (string id, MovieCreateDto movie) => UpdateMovie(id, movie));
-        group.MapDelete("/{id}", (string id) => DeleteMovie(id));
-    }
-
-    private static Results<Ok<MoviesReturnedDto>, BadRequest> GetMovies()
-    {
-        return TypedResults.Ok(new MoviesReturnedDto { Items = _movies });
-    }
-
-    private static Results<Ok<Movie>, NotFound, BadRequest> GetMovieById(string id)
-    {
-        if (string.IsNullOrEmpty(id))
+        group.MapGet("/", async (ApplicationDbContext _context) => await GetMoviesAsync(_context)).WithDescription("Get all movies");
+        group.MapGet("/{id}", async (ApplicationDbContext _context, string id) => await GetMovieByIdAsync(_context, id)).WithDescription("Get movie by id");
+        group.MapPost("/", async (ApplicationDbContext _context, MovieCreateDto movie) => await AddMovieAsync(_context, movie)).WithDescription("Add a new movie");
+        group.MapPut("/{id}", async (ApplicationDbContext _context, string id, [FromBody] MovieCreateDto movie) =>
         {
-            return TypedResults.BadRequest();
-        }
+            return await UpdateMovieAsync(_context, id, movie);
+        }).WithDescription("Update a movie");
+        group.MapDelete("/{id}", async (ApplicationDbContext _context, string id) => await DeleteMovieAsync(_context, id)).WithDescription("Delete a movie");
+    }
 
-        var movie = _movies.FirstOrDefault(m => m.Id == id);
+
+    private static async Task<Ok<ReturnedMoviesDto>> GetMoviesAsync(ApplicationDbContext _context)
+    {
+        var movies = await _context.Movies.ToListAsync();
+        return TypedResults.Ok(new ReturnedMoviesDto { Items = movies });
+    }
+
+    private static async Task<Results<Ok<Movie>, NotFound>> GetMovieByIdAsync(ApplicationDbContext _context, string id)
+    {
+        var movie = await _context.Movies.SingleOrDefaultAsync(m => m.Id == id);
         if (movie is null)
         {
             return TypedResults.NotFound();
@@ -39,67 +39,57 @@ public static class MoviesEndpoints
         return TypedResults.Ok(movie);
     }
 
-    private static Results<Created<Movie>, BadRequest> AddMovie(MovieCreateDto movie)
-    {
-        if (string.IsNullOrEmpty(movie.Title) || movie.ReleaseYear <= 1800)
-        {
-            return TypedResults.BadRequest();
-        }
 
-        var movieWithId = new Movie
+    private static async Task<Results<Created<Movie>, BadRequest>> AddMovieAsync(ApplicationDbContext _context, MovieCreateDto movie)
+    {
+        var newMovie = new Movie()
         {
             Id = $"movie_{Ulid.NewUlid()}",
-            Title = movie.Title,
-            ReleaseYear = movie.ReleaseYear
+            Name = movie.Title,
+            Year = movie.ReleaseYear,
+            Watched = false,
         };
-
-        _movies.Add(movieWithId);
-        return TypedResults.Created($"/movies/{movieWithId.Id}", movieWithId);
+        _context.Movies.Add(newMovie);
+        await _context.SaveChangesAsync();
+        return TypedResults.Created($"/movies/{newMovie.Id}", newMovie);
     }
 
-    private static Results<Ok<Movie>, NotFound, BadRequest> UpdateMovie(string id, MovieCreateDto movie)
+    private static async Task<Results<Ok<Movie>, NotFound>> UpdateMovieAsync(ApplicationDbContext _context, string id, MovieCreateDto movie)
     {
-        if (string.IsNullOrEmpty(id))
-        {
-            return TypedResults.BadRequest();
-        }
-
-        var movieToUpdate = _movies.FirstOrDefault(m => m.Id == id);
+        var movieToUpdate = await _context.Movies.FindAsync(id);
         if (movieToUpdate is null)
         {
             return TypedResults.NotFound();
         }
-
-        movieToUpdate.Title = movie.Title;
-        movieToUpdate.ReleaseYear = movie.ReleaseYear;
+        movieToUpdate.Name = movie.Title;
+        movieToUpdate.Year = movie.ReleaseYear;
+        movieToUpdate.Watched = movie.Watched;
+        await _context.SaveChangesAsync();
         return TypedResults.Ok(movieToUpdate);
     }
 
-    private static Results<NoContent, NotFound, BadRequest> DeleteMovie(string id)
+    private static async Task<Results<NotFound, NoContent>> DeleteMovieAsync(ApplicationDbContext _context, string id)
     {
-        if (string.IsNullOrEmpty(id))
-        {
-            return TypedResults.BadRequest();
-        }
-
-        var movie = _movies.FirstOrDefault(m => m.Id == id);
+        var movie = await _context.Movies.FindAsync(id);
         if (movie is null)
         {
             return TypedResults.NotFound();
         }
-
-        _movies.Remove(movie);
+        _context.Movies.Remove(movie);
+        await _context.SaveChangesAsync();
         return TypedResults.NoContent();
     }
 
-    private record MoviesReturnedDto
+    private record ReturnedMoviesDto
     {
-        public required List<Movie> Items { get; init; }
+        public List<Movie>? Items { get; init; }
     }
 
     private record MovieCreateDto
     {
         public required string Title { get; init; }
         public required int ReleaseYear { get; init; }
+        public required bool Watched { get; init; }
+
     }
 }
