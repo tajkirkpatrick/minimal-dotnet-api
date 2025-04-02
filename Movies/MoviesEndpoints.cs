@@ -31,7 +31,7 @@ public static class MoviesEndpoints
 
     private static async Task<Results<Ok<Movie>, NotFound>> GetMovieByIdAsync(ApplicationDbContext _context, string id)
     {
-        var movie = await _context.Movies.SingleOrDefaultAsync(m => m.Id == id);
+        var movie = await _context.Movies.FindAsync(id);
         if (movie is null)
         {
             return TypedResults.NotFound();
@@ -42,6 +42,11 @@ public static class MoviesEndpoints
 
     private static async Task<Results<Created<Movie>, BadRequest>> AddMovieAsync(ApplicationDbContext _context, MovieCreateDto movie)
     {
+        if (string.IsNullOrWhiteSpace(movie.Title) || movie.ReleaseYear <= 0 || (movie.Watched is not true or false))
+        {
+            return TypedResults.BadRequest();
+        }
+
         var newMovie = new Movie()
         {
             Id = $"movie_{Ulid.NewUlid()}",
